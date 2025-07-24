@@ -1,0 +1,48 @@
+{
+  "name": "dreamfactory/df-shopify",
+  "description": "Shopify integration for DreamFactory",
+  "keywords": ["dreamfactory", "laravel", "shopify", "ecommerce"],
+  "authors": [
+    {
+      "name": "DreamFactory Development Team",
+      "email": "code@dreamfactory.com"
+    }
+  ],
+  "support": {
+    "email": "dspsupport@dreamfactory.com",
+    "source": "https://github.com/dreamfactorysoftware/df-shopify",
+    "issues": "https://github.com/dreamfactorysoftware/df-shopify/issues",
+    "wiki": "https://wiki.dreamfactory.com"
+  },
+  "license": "Apache-2.0",
+  "type": "library",
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "require": {
+    "php": "^8.0",
+    "dreamfactory/df-core": "~1.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^8.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "DreamFactory\\Core\\Shopify\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "classmap": [
+      "tests/"
+    ]
+  },
+  "extra": {
+    "branch-alias": {
+      "dev-develop": "0.1.x-dev"
+    },
+    "laravel": {
+      "providers": [
+        "DreamFactory\\Core\\Shopify\\ServiceProvider"
+      ]
+    }
+  }
+} 
