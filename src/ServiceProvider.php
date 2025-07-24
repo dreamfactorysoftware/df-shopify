@@ -19,7 +19,7 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
                     'name'           => 'shopify',
                     'label'          => 'Shopify Store',
                     'description'    => 'Connect to Shopify stores for products, orders, and customer data',
-                    'group'          => ServiceTypeGroups::REMOTE,
+                    'group'          => ServiceTypeGroups::DATABASE,
                     'config_handler' => ShopifyConfig::class,
                     'factory'        => function ($config) {
                         return new Shopify($config);
