@@ -1,0 +1,66 @@
+{
+  "name":        "dreamfactory/df-core",
+  "description": "DreamFactory(tm) Core Components",
+  "homepage":    "https://www.dreamfactory.com/",
+  "keywords":    [
+    "dreamfactory",
+    "laravel",
+    "rest",
+    "api",
+    "automatic-api",
+    "mbaas",
+    "baas",
+    "paas"
+  ],
+  "license":     [
+    "Apache-2.0"
+  ],
+  "authors":     [
+    {
+      "name":  "DreamFactory Development Team",
+      "email": "code@dreamfactory.com"
+    }
+  ],
+  "support":     {
+    "email":  "dspsupport@dreamfactory.com",
+    "source": "https://github.com/dreamfactorysoftware/df-core",
+    "issues": "https://github.com/dreamfactorysoftware/df-core/issues",
+    "wiki":   "https://wiki.dreamfactory.com"
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "require":     {
+    "php":                    "^8.0",
+    "doctrine/dbal":          "^3.1.4",
+    "guzzlehttp/guzzle":      "^7.8",
+    "symfony/yaml":           "^6.0",
+    "tymon/jwt-auth":         "^2.1.0",
+    "dreamfactory/df-system": "~0.6.2"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "@stable"
+  },
+  "autoload":    {
+    "files": [
+      "src/helpers.php"
+    ],
+    "psr-4": {
+      "DreamFactory\\Core\\": "src/"
+    }
+  },
+  "extra":       {
+    "branch-alias": {
+      "dev-develop": "0.14.x-dev"
+    },
+    "laravel": {
+      "providers": [
+        "DreamFactory\\Core\\LaravelServiceProvider"
+      ],
+      "aliases": {
+        "ServiceManager": "DreamFactory\\Core\\Facades\\ServiceManager",
+        "SystemTableModelMapper": "DreamFactory\\Core\\Facades\\SystemTableModelMapper",
+        "DbSchemaExtensions": "DreamFactory\\Core\\Facades\\DbSchemaExtensions"
+      }
+    }
+  }
+}

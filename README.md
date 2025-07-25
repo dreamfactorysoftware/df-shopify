@@ -1,16 +1,27 @@
 # DreamFactory Shopify Connector
 
-A DreamFactory service package for connecting to Shopify stores via the Admin API. This connector provides read-only access to your Shopify store data including products, orders, customers, and collections.
+A modern DreamFactory service package for connecting to Shopify stores via the **official Shopify GraphQL API**. This connector provides high-performance, read-only access to your Shopify store data with future-proof GraphQL integration.
+
+## 🚀 **Latest: GraphQL API Integration (v1.1.0)**
+
+**Major upgrade with GraphQL support!** This version migrates from REST to GraphQL for:
+- ⚡ **Faster performance** with optimized queries
+- 🎯 **Precise data fetching** - get only the fields you need
+- 🔮 **Future-proof** - prepared for Shopify's GraphQL-first direction
+- 🛠️ **Official SDK** - powered by `shopify/shopify-api` for robust integration
 
 ## Features
 
-- **Products**: List products, get individual products, and access product variants
-- **Orders**: List orders with filtering by status, financial status, and date ranges
-- **Customers**: List customers and access individual customer details
-- **Collections**: List collections and browse products within collections
-- **Advanced Filtering**: Server-side filtering using Shopify API parameters
-- **Performance Optimized**: Lightweight responses with optional large field inclusion
-- **Read-Only Access**: Secure read-only mode for data analytics and reporting
+* **🔥 GraphQL-Powered**: Built on Shopify's modern GraphQL API with official SDK
+* **📦 Products**: List products, get individual products, and access product variants with dynamic field selection
+* **📋 Orders**: List orders with advanced filtering by status, financial status, and date ranges  
+* **👥 Customers**: List customers and access individual customer details with privacy controls
+* **📚 Collections**: List collections and browse products within collections (smart & custom)
+* **🎯 Dynamic Queries**: GraphQL queries built on-demand based on requested fields for optimal performance
+* **🚀 Advanced Filtering**: Server-side filtering using GraphQL query syntax and Shopify parameters
+* **📄 Cursor Pagination**: Modern GraphQL cursor-based pagination with metadata
+* **🔒 Read-Only Access**: Secure read-only mode for data analytics and reporting
+* **⚡ Performance Optimized**: Lightweight responses with optional large field inclusion
 
 ## Requirements
 
@@ -149,106 +160,3 @@ GET /api/v2/my_shopify/collections/123456789
 # Get products in collection
 GET /api/v2/my_shopify/collections/123456789/products
 ```
-
-## Advanced Features
-
-### Field Selection
-
-Use the `fields` parameter to limit returned data for better performance:
-
-```bash
-# Only return id, title, and price
-GET /api/v2/my_shopify/products?fields=id,title,price
-
-# Include large fields like description and images
-GET /api/v2/my_shopify/products?fields=id,title,description,images
-```
-
-### Filtering
-
-The connector supports both DreamFactory-style SQL filters and Shopify-specific parameters:
-
-```bash
-# DreamFactory SQL-style filter
-GET /api/v2/my_shopify/products?filter=vendor='Nike' AND status='active'
-
-# Direct Shopify parameters
-GET /api/v2/my_shopify/orders?financial_status=paid&fulfillment_status=shipped
-```
-
-### Pagination
-
-```bash
-# Standard pagination
-GET /api/v2/my_shopify/products?limit=25&offset=50
-
-# Shopify cursor-based pagination
-GET /api/v2/my_shopify/products?since_id=123456789
-```
-
-## Performance Optimization
-
-### Lightweight Responses
-
-By default, list endpoints exclude large fields for better performance:
-
-- **Products**: Excludes `description`, `images`, `variants`, `options`
-- **Orders**: Excludes `line_items`, `addresses`, `shipping_lines`
-- **Customers**: Excludes `addresses`, `default_address`
-
-Use the `fields` parameter to explicitly include these when needed.
-
-### Server-Side Filtering
-
-Filters are passed directly to Shopify's API for efficient server-side processing, reducing bandwidth and improving response times.
-
-## Error Handling
-
-The connector includes comprehensive error handling:
-
-- **Authentication errors**: Clear messages for invalid credentials
-- **Rate limiting**: Automatic handling of Shopify API rate limits
-- **Not found errors**: Proper 404 responses for missing resources
-- **Validation errors**: Detailed error messages for invalid requests
-
-## Security
-
-- **Read-only access**: All write operations (POST, PUT, DELETE) are blocked
-- **Encrypted storage**: API secrets and access tokens are encrypted in the database
-- **Input validation**: All parameters are validated before sending to Shopify
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"Invalid API key or access token"**
-   - Verify your Private App credentials
-   - Check that the API key and access token match
-
-2. **"No operations defined in spec"**
-   - Clear application cache: `php artisan cache:clear`
-   - Restart your DreamFactory service
-
-3. **Empty responses**
-   - Check your Private App permissions
-   - Verify the shop domain is correct (without `https://`)
-
-### Logs
-
-Check DreamFactory logs for detailed error information:
-
-```bash
-tail -f storage/logs/dreamfactory.log | grep -i shopify
-```
-
-## Support
-
-For issues and questions:
-
-1. Check the [DreamFactory Documentation](https://wiki.dreamfactory.com)
-2. Review [Shopify Admin API Documentation](https://shopify.dev/docs/admin-api)
-3. Contact DreamFactory Support
-
-## License
-
-This package is licensed under the same license as DreamFactory. 

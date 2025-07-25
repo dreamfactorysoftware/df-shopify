@@ -20,7 +20,8 @@
   "prefer-stable": true,
   "require": {
     "php": "^8.0",
-    "dreamfactory/df-core": "~1.0"
+    "dreamfactory/df-core": "~1.0",
+    "shopify/shopify-api": "^5.10"
   },
   "require-dev": {
     "phpunit/phpunit": "^8.5"

@@ -6,6 +6,8 @@ use DreamFactory\Core\Resources\BaseRestResource;
 use DreamFactory\Core\Enums\ApiOptions;
 use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Exceptions\InternalServerErrorException;
+use DreamFactory\Core\Shopify\GraphQL\QueryBuilder;
+use DreamFactory\Core\Shopify\GraphQL\ResponseTransformer;
 use Illuminate\Support\Arr;
 
 class Orders extends BaseRestResource
@@ -13,7 +15,7 @@ class Orders extends BaseRestResource
     const RESOURCE_NAME = 'orders';
 
     /**
-     * Handle GET requests for orders
+     * Handle GET requests for orders using GraphQL
      * 
      * @return array
      * @throws BadRequestException
@@ -21,109 +23,167 @@ class Orders extends BaseRestResource
      */
     protected function handleGET()
     {
-        // Check if this is a request for a specific order: /orders/{id}
-        if (!empty($this->resourceArray) && !empty($this->resourceArray[0])) {
-            $orderId = $this->resourceArray[0];
-            return $this->getOrderById($orderId);
-        }
-
         try {
-            // Get query parameters
             $limit = $this->request->getParameter(ApiOptions::LIMIT, 50);
             $offset = $this->request->getParameter(ApiOptions::OFFSET, 0);
             $fields = $this->request->getParameter(ApiOptions::FIELDS);
             $filter = $this->request->getParameter(ApiOptions::FILTER);
             $ids = $this->request->getParameter(ApiOptions::IDS);
             
-            // Get Shopify service instance
+            // Get Shopify service credentials (same as working REST endpoints)
             $shopifyService = $this->getService();
-            
-            // Prepare Shopify API parameters
-            $params = [
-                'limit' => min($limit, 250), // Shopify max is 250
-                'status' => 'any', // Default to show all order statuses
-            ];
-            
-            // Handle pagination with since_id instead of offset
-            if ($offset > 0) {
-                // For simplicity, we'll use a basic approach
-                // In production, you'd want to implement proper cursor-based pagination
-                $params['page'] = ceil($offset / $limit) + 1;
-            }
-            
-            // Apply filters to Shopify API parameters (passed to Shopify, not filtered locally)
-            $this->applyFiltersToParams($params, $filter, $ids);
-            
-            // Make direct HTTP call to Shopify (like successful curl test)
             $shopDomain = $shopifyService->getShopDomain();
             $accessToken = $shopifyService->getAccessToken();
-            $apiVersion = $shopifyService->getApiVersion();
             
-            $url = "https://{$shopDomain}/admin/api/{$apiVersion}/orders.json";
-            if (!empty($params)) {
-                $url .= '?' . http_build_query($params);
+            // Parse resource ID from DreamFactory routing
+            $resourceId = null;
+            if (!empty($this->resourceId) && is_numeric($this->resourceId)) {
+                $resourceId = $this->resourceId;
+            } elseif (isset($this->resourceArray[0]) && !empty($this->resourceArray[0])) {
+                $resourceId = $this->resourceArray[0];
             }
             
-
-            
-            // Use cURL for direct HTTP call
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $url,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_HTTPHEADER => [
-                    'X-Shopify-Access-Token: ' . $accessToken,
-                    'Content-Type: application/json',
-                    'Accept: application/json'
-                ],
-                CURLOPT_TIMEOUT => 30,
-                CURLOPT_SSL_VERIFYPEER => true
-            ]);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlError = curl_error($ch);
-            curl_close($ch);
-            
-            if ($curlError) {
-                throw new InternalServerErrorException('Shopify API call failed: ' . $curlError);
+            // Route to appropriate handler
+            if ($resourceId) {
+                // GET /orders/{id}
+                return $this->getSingleOrder($resourceId, $shopDomain, $accessToken, $fields);
+            } else {
+                // GET /orders
+                return $this->getOrders($shopDomain, $accessToken, $limit, $offset, $fields, $filter, $ids);
             }
-            
-            $responseBody = json_decode($response, true);
-            $shopifyOrders = $responseBody['orders'] ?? [];
-            
-
-            
-            // Transform Shopify order data to our format
-            $orders = [];
-            foreach ($shopifyOrders as $order) {
-                // Use lightweight mode for order lists to improve performance
-                // Include large fields only if specifically requested via fields parameter
-                $includeLargeFields = !empty($fields) && 
-                    (strpos($fields, 'line_items') !== false || 
-                     strpos($fields, 'billing_address') !== false || 
-                     strpos($fields, 'shipping_address') !== false ||
-                     strpos($fields, 'shipping_lines') !== false);
-                     
-                $transformedOrder = $this->transformOrder($order, $includeLargeFields);
-                
-                // Apply field filtering if requested
-                if (!empty($fields)) {
-                    $fieldsArray = explode(',', $fields);
-                    $transformedOrder = array_intersect_key($transformedOrder, array_flip($fieldsArray));
-                }
-                
-                $orders[] = $transformedOrder;
-            }
-
-            return [
-                'resource' => $orders
-            ];
-
         } catch (\Exception $e) {
-            \Log::error('Shopify Orders API error: ' . $e->getMessage());
-            throw new InternalServerErrorException('Failed to retrieve orders from Shopify: ' . $e->getMessage());
+            \Log::error('Orders API error: ' . $e->getMessage());
+            throw new InternalServerErrorException('Failed to fetch orders: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Get orders list using GraphQL
+     */
+    private function getOrders($shopDomain, $accessToken, $limit, $offset, $fields, $filter, $ids)
+    {
+        // Build filters from DreamFactory parameters
+        $filters = [];
+        if ($filter) {
+            $filters = $this->parseFilters($filter);
+        }
+        if ($ids) {
+            $filters['ids'] = explode(',', $ids);
+        }
+        
+        // Calculate cursor from offset (simplified approach)
+        $cursor = $offset > 0 ? base64_encode("arrayconnection:$offset") : null;
+        
+        // Build GraphQL query
+        $query = QueryBuilder::buildOrdersQuery($limit, $fields, $cursor, $filters);
+        
+        \Log::info('Executing GraphQL orders query', ['query' => $query]);
+        
+        // Use cURL for GraphQL (same proven auth as working REST endpoints)
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "https://{$shopDomain}/admin/api/{$this->getService()->getApiVersion()}/graphql.json",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['query' => $query]),
+            CURLOPT_HTTPHEADER => [
+                'X-Shopify-Access-Token: ' . $accessToken,
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ],
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curlError) {
+            throw new InternalServerErrorException('Shopify GraphQL API call failed: ' . $curlError);
+        }
+        
+        $responseData = json_decode($response, true);
+        
+        // Check for GraphQL errors
+        if (isset($responseData['errors'])) {
+            $errorMessage = 'GraphQL errors: ' . json_encode($responseData['errors']);
+            \Log::error($errorMessage);
+            throw new BadRequestException($errorMessage);
+        }
+        
+        // Transform GraphQL response to REST format
+        return ResponseTransformer::transformOrdersResponse($responseData);
+    }
+
+    /**
+     * Get single order using GraphQL
+     */
+    private function getSingleOrder($orderId, $shopDomain, $accessToken, $fields)
+    {
+        // Convert numeric ID to GraphQL global ID
+        $graphqlId = "gid://shopify/Order/$orderId";
+        
+        // Build GraphQL query
+        $query = QueryBuilder::buildOrderQuery($graphqlId, $fields);
+        
+        \Log::info('Executing GraphQL single order query', [
+            'query' => $query, 
+            'order_id' => $orderId
+        ]);
+        
+        // Use cURL for GraphQL
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "https://{$shopDomain}/admin/api/{$this->getService()->getApiVersion()}/graphql.json",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['query' => $query]),
+            CURLOPT_HTTPHEADER => [
+                'X-Shopify-Access-Token: ' . $accessToken,
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ],
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curlError) {
+            throw new InternalServerErrorException('Shopify GraphQL API call failed: ' . $curlError);
+        }
+        
+        $responseData = json_decode($response, true);
+        
+        // Check for GraphQL errors
+        if (isset($responseData['errors'])) {
+            $errorMessage = 'GraphQL errors: ' . json_encode($responseData['errors']);
+            \Log::error($errorMessage);
+            throw new BadRequestException($errorMessage);
+        }
+        
+        // Transform GraphQL response to REST format
+        return ResponseTransformer::transformSingleOrderResponse($responseData);
+    }
+
+    /**
+     * Parse DreamFactory filter string into Shopify GraphQL filters
+     */
+    private function parseFilters($filter)
+    {
+        $filters = [];
+        // Simple parsing - in production you'd want more robust parsing
+        if (strpos($filter, 'financial_status') !== false) {
+            if (preg_match("/financial_status\s*=\s*['\"]([^'\"]+)['\"]/",$filter, $matches)) {
+                $filters['financial_status'] = $matches[1];
+            }
+                         }
+        return $filters;
     }
 
     /**

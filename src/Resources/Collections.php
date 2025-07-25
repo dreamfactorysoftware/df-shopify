@@ -6,6 +6,9 @@ use DreamFactory\Core\Exceptions\BadRequestException;
 use DreamFactory\Core\Resources\BaseRestResource;
 use DreamFactory\Core\Enums\Verbs;
 use DreamFactory\Core\Utility\ResponseFactory;
+use DreamFactory\Core\Shopify\GraphQL\QueryBuilder;
+use DreamFactory\Core\Shopify\GraphQL\ResponseTransformer;
+use DreamFactory\Core\Exceptions\InternalServerErrorException;
 
 class Collections extends BaseRestResource
 {
@@ -28,82 +31,166 @@ class Collections extends BaseRestResource
     }
 
     /**
-     * Handle GET requests for collections
+     * Handle GET requests for collections using GraphQL
      */
     protected function handleGET()
     {
-        // Parse resource ID from DreamFactory routing
-        $resourceId = null;
-        if (!empty($this->resourceId) && is_numeric($this->resourceId)) {
-            $resourceId = $this->resourceId;
-        } elseif (isset($this->resourceArray[0]) && !empty($this->resourceArray[0])) {
-            $resourceId = $this->resourceArray[0];
-        }
-        $subResource = isset($this->resourceArray[1]) ? $this->resourceArray[1] : null;
-
-        // Route to appropriate handler
-        if ($resourceId) {
-            if ($subResource === 'products') {
-                // GET /collections/{id}/products
-                return $this->getCollectionProducts($resourceId);
-            } else {
-                // GET /collections/{id}
-                return $this->getCollectionById($resourceId);
+        try {
+            // Get query parameters
+            $limit = $this->request->getParameter('limit', 50);
+            $offset = $this->request->getParameter('offset', 0);
+            $fields = $this->request->getParameter('fields');
+            $filter = $this->request->getParameter('filter');
+            $ids = $this->request->getParameter('ids');
+            
+            // Get Shopify service credentials (same as working REST endpoints)
+            $shopifyService = $this->getService();
+            $shopDomain = $shopifyService->getShopDomain();
+            $accessToken = $shopifyService->getAccessToken();
+            
+            // Parse resource ID from DreamFactory routing
+            $resourceId = null;
+            if (!empty($this->resourceId) && is_numeric($this->resourceId)) {
+                $resourceId = $this->resourceId;
+            } elseif (isset($this->resourceArray[0]) && !empty($this->resourceArray[0])) {
+                $resourceId = $this->resourceArray[0];
             }
-        } else {
+            $subResource = isset($this->resourceArray[1]) ? $this->resourceArray[1] : null;
 
-            // GET /collections
-            return $this->getCollections();
+            // Route to appropriate handler
+            if ($resourceId) {
+                if ($subResource === 'products') {
+                    // GET /collections/{id}/products
+                    return $this->getCollectionProducts($resourceId, $shopDomain, $accessToken, $limit, $offset, $fields);
+                } else {
+                    // GET /collections/{id}
+                    return $this->getSingleCollection($resourceId, $shopDomain, $accessToken, $fields);
+                }
+            } else {
+                // GET /collections
+                return $this->getCollections($shopDomain, $accessToken, $limit, $offset, $fields, $filter, $ids);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Collections API error: ' . $e->getMessage());
+            throw new InternalServerErrorException('Failed to fetch collections: ' . $e->getMessage());
         }
     }
 
     /**
-     * Get all collections (both smart and custom collections)
+     * Get collections list using GraphQL
      */
-    private function getCollections()
+    private function getCollections($shopDomain, $accessToken, $limit, $offset, $fields, $filter, $ids)
     {
-        try {
-            $service = $this->getService();
-            $shopDomain = $service->getShopDomain();
-            $accessToken = $service->getAccessToken();
-            $apiVersion = $service->getApiVersion();
-
-            // Build query parameters
-            $params = [];
-            
-            // Apply filters and pagination
-            $this->applyFiltersToParams($params);
-
-            $queryString = !empty($params) ? '?' . http_build_query($params) : '';
-            
-            // Shopify has separate endpoints for smart and custom collections
-            $smartCollectionsUrl = "https://{$shopDomain}/admin/api/{$apiVersion}/smart_collections.json{$queryString}";
-            $customCollectionsUrl = "https://{$shopDomain}/admin/api/{$apiVersion}/custom_collections.json{$queryString}";
-
-            $allCollections = [];
-
-            // Get smart collections
-            $smartCollections = $this->fetchCollectionsFromUrl($smartCollectionsUrl, $accessToken, 'smart_collections');
-            if ($smartCollections) {
-                $allCollections = array_merge($allCollections, $smartCollections);
-            }
-
-            // Get custom collections
-            $customCollections = $this->fetchCollectionsFromUrl($customCollectionsUrl, $accessToken, 'custom_collections');
-            if ($customCollections) {
-                $allCollections = array_merge($allCollections, $customCollections);
-            }
-
-            // Transform collections data
-            $collections = array_map([$this, 'transformCollection'], $allCollections);
-
-            return ResponseFactory::create(['resource' => $collections]);
-
-        } catch (\Exception $e) {
-            \Log::error('Shopify Collections Error: ' . $e->getMessage());
-            throw new \Exception('Failed to retrieve collections from Shopify: ' . $e->getMessage());
+        // Build filters from DreamFactory parameters
+        $filters = [];
+        if ($filter) {
+            $filters = $this->parseFilters($filter);
         }
+        if ($ids) {
+            $filters['ids'] = explode(',', $ids);
+        }
+        
+        // Calculate cursor from offset (simplified approach)
+        $cursor = $offset > 0 ? base64_encode("arrayconnection:$offset") : null;
+        
+        // Build GraphQL query
+        $query = QueryBuilder::buildCollectionsQuery($limit, $fields, $cursor, $filters);
+        
+        \Log::info('Executing GraphQL collections query', ['query' => $query]);
+        
+        // Use cURL for GraphQL (same proven auth as working REST endpoints)
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "https://{$shopDomain}/admin/api/{$this->getService()->getApiVersion()}/graphql.json",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['query' => $query]),
+            CURLOPT_HTTPHEADER => [
+                'X-Shopify-Access-Token: ' . $accessToken,
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ],
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curlError) {
+            throw new InternalServerErrorException('Shopify GraphQL API call failed: ' . $curlError);
+        }
+        
+        $responseData = json_decode($response, true);
+        
+        // Check for GraphQL errors
+        if (isset($responseData['errors'])) {
+            $errorMessage = 'GraphQL errors: ' . json_encode($responseData['errors']);
+            \Log::error($errorMessage);
+            throw new BadRequestException($errorMessage);
+        }
+        
+        // Transform GraphQL response to REST format
+        return ResponseTransformer::transformCollectionsResponse($responseData);
     }
+
+    /**
+     * Get single collection using GraphQL
+     */
+    private function getSingleCollection($collectionId, $shopDomain, $accessToken, $fields)
+    {
+        // Convert numeric ID to GraphQL global ID
+        $graphqlId = "gid://shopify/Collection/$collectionId";
+        
+        // Build GraphQL query
+        $query = QueryBuilder::buildCollectionQuery($graphqlId, $fields);
+        
+        \Log::info('Executing GraphQL single collection query', [
+            'query' => $query, 
+            'collection_id' => $collectionId
+        ]);
+        
+        // Use cURL for GraphQL
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "https://{$shopDomain}/admin/api/{$this->getService()->getApiVersion()}/graphql.json",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['query' => $query]),
+            CURLOPT_HTTPHEADER => [
+                'X-Shopify-Access-Token: ' . $accessToken,
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ],
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curlError) {
+            throw new InternalServerErrorException('Shopify GraphQL API call failed: ' . $curlError);
+        }
+        
+        $responseData = json_decode($response, true);
+        
+        // Check for GraphQL errors
+        if (isset($responseData['errors'])) {
+            $errorMessage = 'GraphQL errors: ' . json_encode($responseData['errors']);
+            \Log::error($errorMessage);
+            throw new BadRequestException($errorMessage);
+        }
+        
+        // Transform GraphQL response to REST format
+        return ResponseTransformer::transformSingleCollectionResponse($responseData);
+    }
+
+
 
     /**
      * Helper method to fetch collections from a specific URL
@@ -221,55 +308,75 @@ class Collections extends BaseRestResource
     }
 
     /**
-     * Get products in a collection (tries both smart and custom collections)
+     * Get collection products using GraphQL
      */
-    private function getCollectionProducts($collectionId)
+    private function getCollectionProducts($collectionId, $shopDomain, $accessToken, $limit, $offset, $fields)
     {
-        try {
-            $service = $this->getService();
-            $shopDomain = $service->getShopDomain();
-            $accessToken = $service->getAccessToken();
-            $apiVersion = $service->getApiVersion();
-
-
-
-            // Build query parameters
-            $params = [];
-            
-            // Apply filters and pagination
-            $this->applyFiltersToParams($params);
-
-            $queryString = !empty($params) ? '?' . http_build_query($params) : '';
-            
-            // Use unified collections endpoint (works for both smart and custom)
-            $collectionUrl = "https://{$shopDomain}/admin/api/{$apiVersion}/collections/{$collectionId}/products.json{$queryString}";
-            $products = $this->fetchCollectionProductsFromUrl($collectionUrl, $accessToken);
-            
-            if ($products === null) {
-                \Log::error('Collection products not found', [
-                    'collection_id' => $collectionId,
-                    'url' => $collectionUrl
-                ]);
-                throw new \Exception("Collection products not found");
-            }
-
-            // Transform products data using simple transformer
-            $transformedProducts = array_map(function($product) {
-                return $this->transformProduct($product, false); // Lightweight for lists
-            }, $products);
-
-
-
-            return ResponseFactory::create(['resource' => $transformedProducts]);
-
-        } catch (\Exception $e) {
-            \Log::error('Shopify Collection Products Error: ' . $e->getMessage(), [
-                'collection_id' => $collectionId,
-                'exception' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            throw new \Exception('Failed to retrieve collection products from Shopify: ' . $e->getMessage());
+        // Convert numeric ID to GraphQL global ID
+        $graphqlId = "gid://shopify/Collection/$collectionId";
+        
+        // Calculate cursor from offset (simplified approach)
+        $cursor = $offset > 0 ? base64_encode("arrayconnection:$offset") : null;
+        
+        // Build GraphQL query
+        $query = QueryBuilder::buildCollectionProductsQuery($graphqlId, $limit, $fields, $cursor);
+        
+        \Log::info('Executing GraphQL collection products query', [
+            'query' => $query, 
+            'collection_id' => $collectionId
+        ]);
+        
+        // Use cURL for GraphQL
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "https://{$shopDomain}/admin/api/{$this->getService()->getApiVersion()}/graphql.json",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['query' => $query]),
+            CURLOPT_HTTPHEADER => [
+                'X-Shopify-Access-Token: ' . $accessToken,
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ],
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curlError) {
+            throw new InternalServerErrorException('Shopify GraphQL API call failed: ' . $curlError);
         }
+        
+        $responseData = json_decode($response, true);
+        
+        // Check for GraphQL errors
+        if (isset($responseData['errors'])) {
+            $errorMessage = 'GraphQL errors: ' . json_encode($responseData['errors']);
+            \Log::error($errorMessage);
+            throw new BadRequestException($errorMessage);
+        }
+        
+        // Transform GraphQL response to REST format
+        return ResponseTransformer::transformCollectionProductsResponse($responseData);
+    }
+
+    /**
+     * Parse DreamFactory filter string into Shopify GraphQL filters
+     */
+    private function parseFilters($filter)
+    {
+        $filters = [];
+        // Simple parsing - in production you'd want more robust parsing
+        if (strpos($filter, 'collection_type') !== false) {
+            if (preg_match("/collection_type\s*=\s*['\"]([^'\"]+)['\"]/",$filter, $matches)) {
+                $filters['collection_type'] = $matches[1];
+            }
+        }
+        return $filters;
     }
 
     /**
