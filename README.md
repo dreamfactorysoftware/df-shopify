@@ -1,32 +1,9 @@
 # DreamFactory Shopify Connector
 
-A modern DreamFactory service package for connecting to Shopify stores via the **official Shopify GraphQL API**. This connector provides high-performance, read-only access to your Shopify store data with future-proof GraphQL integration.
-
-## 🚀 **Latest: GraphQL API Integration (v1.1.0)**
-
-**Major upgrade with GraphQL support!** This version migrates from REST to GraphQL for:
-- ⚡ **Faster performance** with optimized queries
-- 🎯 **Precise data fetching** - get only the fields you need
-- 🔮 **Future-proof** - prepared for Shopify's GraphQL-first direction
-- 🛠️ **Official SDK** - powered by `shopify/shopify-api` for robust integration
-
-## Features
-
-* **🔥 GraphQL-Powered**: Built on Shopify's modern GraphQL API with official SDK
-* **📦 Products**: List products, get individual products, and access product variants with dynamic field selection
-* **📋 Orders**: List orders with advanced filtering by status, financial status, and date ranges  
-* **👥 Customers**: List customers and access individual customer details with privacy controls
-* **📚 Collections**: List collections and browse products within collections (smart & custom)
-* **🎯 Dynamic Queries**: GraphQL queries built on-demand based on requested fields for optimal performance
-* **🚀 Advanced Filtering**: Server-side filtering using GraphQL query syntax and Shopify parameters
-* **📄 Cursor Pagination**: Modern GraphQL cursor-based pagination with metadata
-* **🔒 Read-Only Access**: Secure read-only mode for data analytics and reporting
-* **⚡ Performance Optimized**: Lightweight responses with optional large field inclusion
-
 ## Requirements
 
-- DreamFactory 4.0+
-- PHP 8.0+
+- DreamFactory 7.1+
+- PHP 8.3+
 - Shopify Admin API access (Private App)
 
 ## Installation
